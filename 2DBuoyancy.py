@@ -18,7 +18,7 @@ class Buoyancy:
         return degrees
 
     def convertDegToRad(self, degrees):
-        radians = degrees/58.2957795
+        radians = degrees/57.2957795
         return radians
 
     def generate_points(self, numpoints, rodLength, rotation):
@@ -84,15 +84,15 @@ class Buoyancy:
                     else:
                         Fnet = ((rodMass/numPoints)*2.0*9.8) - ((rodMass/numPoints)*9.8)     
                     #point[1] = -50.0
-                    #newpoint = [point[0],-50.0]
-                    point[1] = y
-                    newpoint = [point[0],y]
+                    newpoint = [point[0],-50.0]
+                    #point[1] = y
+                    #newpoint = [point[0],y]
                 else:
                     if self._rounding:
                         Fnet = round(-(rodMass/numPoints)*9.8,self._sigfig)
                     else:
                         Fnet = -(rodMass/numPoints)*9.8
-                    point[1] = y
+                    #point[1] = y
                     newpoint = [point[0],y]
                 newpoints.append(newpoint)
                 #get center point of rod
@@ -109,9 +109,13 @@ class Buoyancy:
                 torque_sum += torque
                 force_sum += Fnet
                 j += 1
-            if torque_sum < 0.1:
-                torque_sum = 0.0
+
+                # end of loop
+            points = newpoints
+
+
             if self._rounding:
+                rotation = round(rotation,self._sigfig)
                 angularmomentum = round(torque_sum/((rodMass*pow(rodLength,2.0))/12.0),self._sigfig) 
             else:
                 angularmomentum = torque_sum/((rodMass*pow(rodLength,2.0))/12.0)
@@ -158,4 +162,4 @@ class Buoyancy:
                 writer.writerow(row)
                 i+=1
 
-static_test = Buoyancy(5, -50.0, 0.0, 10.0, 10.0, 143.13)
+static_test = Buoyancy(5, -50.0, 0.0, 10.0, 10.0, 143.13010235416)

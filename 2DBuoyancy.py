@@ -1,11 +1,13 @@
 import time, sys, math, csv
-from math import log10, sin, cos, floor
+from math import log10, sin, cos, floor, asin, pi
 
 # 2D Buoyancy script
 # A rod with length L has a odd number set of test points, the middle point representing the origin. 
 # we will assume the rod is made of pine and the liquid is water therefore having a density ratio of 2
 class Buoyancy:
     def __init__(self, numpoints, waterHeight, initialVelocity, rodMass, rodLength, rotation):
+        self._fluidDensity = 1.0
+        self._objectDensity = 2.0
         angle_rad = self.convertDegToRad(rotation)
         self._rounding = True
         self._sigfig = 3
@@ -31,9 +33,8 @@ class Buoyancy:
             #even number, we want odd, add +1, notify user
             numpoints = numpoints + 1
             print 'WARNING: Even number of points was given, an additional point has been added.'
-
-        x_rot = cos(rotation)
-        y_rot = sin(rotation)
+        x_rot = cos(pi - rotation)
+        y_rot = sin(pi - rotation)
 
         i = 0.0 
         while i < numpoints:
@@ -57,12 +58,13 @@ class Buoyancy:
         t = 0.0
         numPoints = len(points)
         yi = self.getInitHeight(points)
+        density_ratio = self._fluidDensity/self._objectDensity
         data = {}
         times = []
         newpoints_sum = []
         torques = [] 
         forces = []
-        angularmomentums = [] 
+        angular_accelerations = [] 
         while t < 4.0:
             torque_sum = 0.0
             force_sum = 0.0
@@ -73,61 +75,49 @@ class Buoyancy:
 
             for point in points:
                 #height transform, Force is in the y-direction
+                y = initialVelocity*t + pow(t,2.0) *(0.5*-9.8) + yi[j] 
                 if self._rounding:
-                    y = round(initialVelocity*t + pow(t,2.0) *(0.5*-9.8) + yi[j],self._sigfig) 
-                else:
-                    y = initialVelocity*t + pow(t,2.0) *(0.5*-9.8) + yi[j] 
+                    y = round(y,self._sigfig) 
                 if y < waterHeight:
-                    #the density ratio is 1/0.5 = 2 
-                    if self._rounding:
-                        Fnet = round(((rodMass/numPoints)*2.0*9.8) - ((rodMass/numPoints)*9.8),self._sigfig) 
-                    else:
-                        Fnet = ((rodMass/numPoints)*2.0*9.8) - ((rodMass/numPoints)*9.8)     
-                    #point[1] = -50.0
+                    # Net Force = Buoyancy Force on object - Force of Gravity on object
+                    Fnet = ((rodMass/numPoints)*density_ratio*9.8) - ((rodMass/numPoints)*9.8)     
                     newpoint = [point[0],-50.0]
-                    #point[1] = y
-                    #newpoint = [point[0],y]
                 else:
-                    if self._rounding:
-                        Fnet = round(-(rodMass/numPoints)*9.8,self._sigfig)
-                    else:
-                        Fnet = -(rodMass/numPoints)*9.8
-                    #point[1] = y
+                    # Net Force = - Force of Gravity on object
+                    Fnet = -(rodMass/numPoints)*9.8
                     newpoint = [point[0],y]
+
                 newpoints.append(newpoint)
                 #get center point of rod
                 rod_origin = points[numPoints/2]
-                # Torque = r * F sin(theta)
                 # Torque in the y direction
                 # convert angle from x axis into rads, math.cos/sin only take rad in puts
                 theta = self.convertDegToRad(rotation)
-                r = point[1] - rod_origin[1]
-                if self._rounding:
-                    torque = round(r*Fnet*sin(theta),self._sigfig)
-                else:
-                    torque = r*Fnet*sin(theta)
+                r = point[0] - rod_origin[0]
+                torque = r*Fnet*sin(theta)
                 torque_sum += torque
                 force_sum += Fnet
                 j += 1
 
                 # end of loop
             points = newpoints
-
+            # angular momentum = Torque divided by the moment of intertia of an object
+            angular_acceleration = torque_sum/((rodMass*pow(rodLength,2.0))/12.0)
 
             if self._rounding:
+                torque_sum = round(torque_sum,self._sigfig)
+                force_sum = round(force_sum,self._sigfig)
                 rotation = round(rotation,self._sigfig)
-                angularmomentum = round(torque_sum/((rodMass*pow(rodLength,2.0))/12.0),self._sigfig) 
-            else:
-                angularmomentum = torque_sum/((rodMass*pow(rodLength,2.0))/12.0)
-            oldpoints = points
+                angular_acceleration = round(angular_acceleration,self._sigfig) 
+                t = round(t,self._sigfig)
             times.append(t)
             newpoints_sum.append(newpoints)
             # torque is being rounded to wierd values this clamps it, figure out the problem.
             torques.append(torque_sum)
             forces.append(force_sum)
-            angularmomentums.append(angularmomentum)
+            angular_accelerations.append(angular_accelerations)
 
-            data = {'time':times,'point locations':newpoints_sum,'torque': torques,'force':forces,'angular momentum':angularmomentums, 'angle':rotation}
+            data = {'time':times,'point locations':newpoints_sum,'torque': torques,'force':forces,'angular acceleration':angular_accelerations, 'angle':rotation}
 
             t += 0.0005
 
@@ -145,7 +135,7 @@ class Buoyancy:
             writer = csv.DictWriter(csvfile, data.keys())
             writer.writeheader()
             times = data['time']
-            angularmomentums = data['angular momentum']
+            angular_accelerations = data['angular acceleration']
             locations = data['point locations']
             torques = data['torque']
             forces = data['force']
@@ -155,7 +145,7 @@ class Buoyancy:
                 row = {'force':forces[i],
                         'torque':torques[i],
                         'point locations':locations[i],
-                        'angular momentum':angularmomentums[i],
+                        'angular acceleration':angular_acceleration[i],
                         'time':times[i],
                         'angle':angle,
                         }

@@ -1,30 +1,37 @@
 import time, sys, math, csv
-from math import log10, sin, cos, floor, asin, pi, sqrt, fabs
+from math import log10, sin, cos, floor, asin, pi, sqrt, fabs, exp
 
 # 2D Buoyancy script
 # A rod with length L has a odd number set of test points, the middle point representing the origin. 
 # we will assume the rod is made of pine and the liquid is water therefore having a density ratio of 2
 class Buoyancy:
     def __init__(self, numpoints, waterHeight, initialVelocity, rodMass, rodLength, rotation):
-        self._debugging = True
+        self._debugging = False
         if self._debugging:
             self._timeInterval = 0.1
+            self._timeEnd = 4.0
         else:
-            self._timeInterval = .0005
-        self._timeEnd = 4.0
+            self._timeInterval = .001
+            self._timeEnd = 20.0
         self._fluidDensity = 1.0
+        self._dampingFactor = 0.1 # For Fdrag, b value -> (density of medium)*(cross sectional area)
         self._objectDensity = 0.5
         self._rounding = True
-        self._sigfig = 3
-        self._waterheight = -50.0
+        self._sigfig = 4
+        self._waterheight = -200
+        self._mInertia = (rodMass*pow(rodLength,2.0))/12.0
         angle_rad = self.convertDegToRad(rotation)
         points = self.generate_points(numpoints, rodLength)
         points = self.TransformPoints(points, angle_rad)
         data = self.simulate_buoyancy(points, rodMass, rodLength, initialVelocity, rotation)
+        if self._rounding:
+            data = self.roundData(data)
+
         if self._debugging:
-            self.promptData(data)
+            self.evaluate(data)
         else:
             self.writeCSV(data)
+            self.evaluate(data)
 
     def convertRadToDeg(self, radians):
         degrees = radians * 57.2957795
@@ -52,8 +59,6 @@ class Buoyancy:
         while i < numpoints:
             x = -rodLength/2.0 + ((rodLength*i)/(fnumpoints-1.0))
             #create a point that lies on the x-axis
-            if self._rounding:
-                x = round(x,self._sigfig)
             point = [x,0]
             points.append(point)
             i+=1.0
@@ -63,12 +68,9 @@ class Buoyancy:
     def simulate_buoyancy(self, points, rodMass, rodLength, initialVelocity, angle):
         # Initial parameters/instantiating data lists
         t = 0.0
-        ti = 0.0
         angular_velocity = 0.0
         velocity = initialVelocity
-        free_fall = True
         numPoints = len(points)
-        yi = self.getInitHeight(points)
         density_ratio = self._fluidDensity/self._objectDensity
         # Initial acceleration is downward gravity
         acceleration = -9.8
@@ -77,9 +79,15 @@ class Buoyancy:
         newpoints_sum = []
         torques = [] 
         forces = []
-        angular_accelerations = [] 
+        angular_accelerations = []
+        angular_velocitys = [] 
         linear_accelerations = []
+        linear_velocitys = []
         angles = []
+        # debugging purposes
+        segments = []
+        segment_sums = []
+        isStraight_list = []
         
         # convert angle from x axis into rads, math.cos/sin only take rad in puts
         # theta is the initial angle of rotation
@@ -87,32 +95,32 @@ class Buoyancy:
         
         while t < self._timeEnd:
 
-            # change in time from freefall
-            deltaT = t - ti
-
             # reset torque and force sum for every time iteration
             torque_sum = 0.0
             force_sum = 0.0
-            
-            # j keeps track on which point we are on in the for the point array loop
-            j = 0
+
+            #Debugging Purposes
+            segment_sum = 0.0
+            segment = []
+            isStraight = []
+            i = 0
 
             newpoints = []
-
             for point in points:
-                #height transform, Force is in the y-direction
-                #WARNING: This code does not update velocity
-                y = velocity*t + pow(t,2.0) *(0.5*acceleration) + yi[j] 
+                # Drag force is initially calculated in the +y direction, assumign movement is in the -y direction
+                Fdrag = (self._dampingFactor * pow(velocity,2.0))
+                if velocity > 0.0:
+                    Fdrag = -Fdrag
+                Fg = ((rodMass/numPoints)*9.8)
+                Fb = ((rodMass/numPoints)*density_ratio*9.8)
+                y = velocity*self._timeInterval + pow(self._timeInterval,2.0) *(0.5*acceleration) + point[1]
                 
                 if y < self._waterheight:
-                    # Net Force = Buoyancy Force on object - Force of Gravity on object
-                    Fnet = ((rodMass/numPoints)*density_ratio*9.8) - ((rodMass/numPoints)*9.8)     
+                    # Object's Net Force = Buoyancy Force + Drag Force - Force of Gravity
+                    Fnet = Fb + Fdrag - Fg
                 else:
                     # Net Force = - Force of Gravity on object
-                    Fnet = -(rodMass/numPoints)*9.8
-
-                if self._rounding:
-                    y = round(y,self._sigfig)
+                    Fnet = -Fg + Fdrag
                 newpoint = [point[0],y]
                 newpoints.append(newpoint)
                 #get center point of rod
@@ -121,58 +129,51 @@ class Buoyancy:
                 torque = r*Fnet
                 torque_sum += torque
                 force_sum += Fnet
-                j += 1
+
+                #For Debugging, get length of segment
+                if i < numPoints - 1:
+                    next_point = points[i+1]
+                    x_len = fabs(point[0] - next_point[0])
+                    y_len = fabs(point[1] - next_point[1])
+                    length = sqrt(pow(x_len,2.0) + pow(y_len,2.0))
+                    segment.append(length)
+                    segment_sum += length
+                i+=1
 
                 # end of for loop
 
-            #Update acceleration of the rod
-            acceleration_temp = force_sum/rodMass
-            if acceleration_temp != acceleration:
-                #acceleration has changed 
-                acceleration = acceleration_temp
-                ti = t
-                yi = self.getInitHeight(points)
-            # Calculate the angular acceleration using torque divided by the moment of inertia for that object
-            angular_acceleration = torque_sum/((rodMass*pow(rodLength,2.0))/12.0)
-            # Update theta using the last angular_velocity, for time we want to use the change in time which is the time iteration variable
-            theta = self.calculateAngle(angular_velocity, self._timeInterval, angular_acceleration) 
-            # Update the angular_velocity if angular acceleration is changing, for time we want to use the change in time
+
+            #Update linear and angular acceleration/velocity and the angle of rotation of the rod
+            acceleration = force_sum/rodMass
+            velocity = self.UpdateLinearVelocity(velocity, self._timeInterval, acceleration)
+            angular_acceleration = torque_sum/self._mInertia
             angular_velocity = self.UpdateAngularVelocity(angular_velocity, self._timeInterval, angular_acceleration)
+            #We might want to calculate theta before angular velocity, caution
+            theta = self.calculateAngle(angular_velocity, self._timeInterval, angular_acceleration) 
             newpoints = self.TransformPoints(newpoints, theta)
-            Valid = self.CheckLength(points, rodLength)
-            print Valid
+            isStraight = self.isStraight(points, rodLength)
             points = newpoints
             angle_change = self.convertRadToDeg(theta)
-            angle = angle - angle_change
-
-            if self._rounding:
-                torque_sum = round(torque_sum,self._sigfig)
-                force_sum = round(force_sum,self._sigfig)
-                angle = round(angle,self._sigfig)
-                angular_acceleration = round(angular_acceleration,self._sigfig) 
-                acceleration = round(acceleration,self._sigfig)
-                angle = round(angle,self._sigfig)
+            angle = angle + angle_change
                 
             times.append(t)
+            segments.append(segment)
+            segment_sums.append(segment_sum)
+            isStraight_list.append(isStraight)
             newpoints_sum.append(newpoints)
             torques.append(torque_sum)
             forces.append(force_sum)
             angular_accelerations.append(angular_acceleration)
+            angular_velocitys.append(angular_velocity)
             linear_accelerations.append(acceleration)
+            linear_velocitys.append(velocity)
             angles.append(angle)
 
-            data = {'time':times,'point locations':newpoints_sum,'torque': torques,'force':forces,'angular acceleration':angular_accelerations,'linear acceleration':linear_accelerations, 'angle':angles}
+            data = {'time':times,'point locations':newpoints_sum,'segments':segments,'is straight/length difference':isStraight_list,'rod length':segment_sums,'torque': torques,'force':forces,'angular velocity':angular_velocitys,'angular acceleration':angular_accelerations,'linear acceleration':linear_accelerations,'linear velocity':linear_velocitys, 'angle':angles}
 
             t += self._timeInterval
 
         return data
-
-    def getInitHeight(self, points):
-        # Initial height of points.
-        yi = []
-        for point in points:
-            yi.append(point[1])
-        return yi
 
     def calculateAngle(self, angular_velocity, time, angular_acceleration):
         return ((angular_velocity*time) + (0.5*angular_acceleration*pow(time,2.0))) 
@@ -180,13 +181,85 @@ class Buoyancy:
     def UpdateAngularVelocity(self, angular_velocity, time, angular_acceleration):
         return (angular_velocity + angular_acceleration*time)
 
-    def CheckLength(self, points, rodLength):
+    def UpdateLinearVelocity(self, velocity, time, acceleration):
+        return (velocity + acceleration*time)
+
+    def isStraight(self, points, rodLength):
+        # This checks if the points line up in a straight line by taking the end points and calculating the length and referencing it to the given rod length
+        data = []
         numpoints = len(points)
-        length = sqrt(pow(fabs(points[0][0]) + fabs(points[numpoints-1][0]),2.0) + pow(fabs(points[0][1]) + fabs(points[numpoints-1][1]),2.0))
+        first_point = points[0]
+        last_point = points[numpoints -1]
+        x_len = fabs(first_point[0] - last_point[0])
+        y_len = fabs(first_point[1] - last_point[1])
+        length = sqrt(pow(x_len,2.0) + pow(y_len,2.0))
+        difference = fabs(rodLength - length)
+        if self._rounding:
+            length = round(length,self._sigfig)
+            difference = round(difference,self._sigfig)
         if length == rodLength:
-            return True
+            isStraight = True
         else:
-            return False
+            isStraight = False
+
+        data.append(isStraight)
+        data.append(difference)
+        return data
+
+    def roundData(self, data):
+        times = data['time']
+        angular_velocitys = data['angular velocity']
+        angular_accelerations = data['angular acceleration']
+        linear_accelerations = data['linear acceleration']
+        linear_velocitys = data['linear velocity']
+        locations = data['point locations']
+        torques = data['torque']
+        forces = data['force']
+        angles = data['angle']
+        segments = data['segments']
+        segment_sums = data['rod length']
+        isStraight_list = data['is straight/length difference']
+        i = 0
+        while i < len(times):
+
+            times[i] = round(times[i],self._sigfig)
+            angular_velocitys[i] = round(angular_velocitys[i],self._sigfig)
+            angular_accelerations[i] = round(angular_accelerations[i],self._sigfig)
+            linear_accelerations[i] = round(linear_accelerations[i],self._sigfig)
+            linear_velocitys[i] = round(linear_velocitys[i],self._sigfig)
+            torques[i] = round(torques[i],self._sigfig)
+            forces[i] = round(forces[i],self._sigfig)
+            angles[i] = round(angles[i],self._sigfig)
+            segment_sums[i] = round(segment_sums[i],self._sigfig)
+            points = locations[i]
+            seg = segments[i]
+            isStraight = isStraight_list [i]
+
+            isStraight[1] = round(isStraight[1],self._sigfig)
+
+            if isStraight[1] == 0.0:
+                isStraight[1] = 'No difference'
+            else:
+                isStraight[1] = repr(difference) + ' difference'
+
+            # 5 loops
+            for point in points:
+                point[0] = round(point[0],self._sigfig)
+                point[1] = round(point[1],self._sigfig)
+            # 4 loops
+            for s in seg:
+                s = round(s,self._sigfig)
+
+            locations[i] = points
+            segments[i] = seg
+            isStraight_list[i] = isStraight
+
+            i+=1
+
+        new_data = {'time':times,'point locations':locations,'segments':segments,'is straight/length difference':isStraight_list,'rod length':segment_sums,'torque': torques,'force':forces,'angular velocity':angular_velocitys,'angular acceleration':angular_accelerations,'linear acceleration':linear_accelerations,'linear velocity':linear_velocitys, 'angle':angles}
+        return new_data
+
+
     def TransformPoints(self, points, theta):
         # Preforms a 2D counter clockwise rotation with respect to the angle from the x axis
         
@@ -215,9 +288,6 @@ class Buoyancy:
             x_transformed = x_prime + x_dist
             y_transformed = y_prime + y_dist
 
-            if self._rounding:
-                x_transformed = round(x_transformed,self._sigfig)
-                y_transformed = round(y_transformed,self._sigfig)
             point[0] = x_transformed
             point[1] = y_transformed
 
@@ -228,18 +298,29 @@ class Buoyancy:
             writer = csv.DictWriter(csvfile, data.keys())
             writer.writeheader()
             times = data['time']
+            angular_velocitys = data['angular velocity']
             angular_accelerations = data['angular acceleration']
             linear_accelerations = data['linear acceleration']
+            linear_velocitys = data['linear velocity']
             locations = data['point locations']
             torques = data['torque']
             forces = data['force']
             angles = data['angle']
+            segments = data['segments']
+            segment_sums = data['rod length']
+            isStraight_list = data['is straight/length difference']
+
             i = 0
             while i < len(times):
                 row = {'force':forces[i],
                         'torque':torques[i],
                         'point locations':locations[i],
+                        'segments':segments[i],
+                        'rod length':segment_sums[i],
+                        'is straight/length difference':isStraight_list[i],
+                        'angular velocity':angular_velocitys[i],
                         'angular acceleration':angular_accelerations[i],
+                        'linear velocity':linear_velocitys[i],
                         'linear acceleration':linear_accelerations[i],
                         'time':times[i],
                         'angle':angles[i],
@@ -247,17 +328,46 @@ class Buoyancy:
                 writer.writerow(row)
                 i+=1
 
-    def promptData(self, data):
+    def evaluate(self, data):
         times = data['time']
+        angular_velocitys = data['angular velocity']
         angular_accelerations = data['angular acceleration']
         linear_accelerations = data['linear acceleration']
+        linear_velocitys = data['linear velocity']
         locations = data['point locations']
         torques = data['torque']
         forces = data['force']
         angles = data['angle']
-        i = 0
-        while i < len(times):
-            #print ('time:',times[i],'points:',locations[i],'angular acceleration:',angular_accelerations[i],'linear acceleration:',linear_accelerations[i],'torque:',torques[i],'force:',forces[i],'angle:',angles[i])
-            i+=1
+        segments = data['segments']
+        segment_sums = data['rod length']
+        isStraight_list = data['is straight/length difference']
+
+        # Find the terminal velocity when the rod hits the water, compare it to the max velocity. 
+        # The idea is to use the damping factor to make the terminal velocity be the max velocity
+        t_water = self.getTimeHitsWater(locations)
+        max_velocity = self.getMaxVelocity(linear_velocitys)
+        terminal_velocity = linear_velocitys[int(t_water/self._timeInterval) - 1]
+
+        prompt = 'Terminal Velocity: ' + repr(terminal_velocity) + ', Max Velocity: ' + repr(max_velocity)
+        if fabs(terminal_velocity) < fabs(max_velocity):
+            prompt = prompt + ' Consider inreasing damping.' 
+        print prompt
+    
+    def getTimeHitsWater(self, locations):
+        t = 0
+        while t < len(locations):
+            points = locations[t]
+            for point in points:
+                if point[1] < self._waterheight:
+                    return t*self._timeInterval
+            t+=1
+
+    def getMaxVelocity(self,linear_velocitys):
+        max_velocity = 0.0
+        for velocity in linear_velocitys:
+            if fabs(velocity) > fabs(max_velocity):
+                max_velocity = velocity
+        return max_velocity
+
 
 static_test = Buoyancy(5, -50.0, 0.0, 10.0, 10.0, -36.87)

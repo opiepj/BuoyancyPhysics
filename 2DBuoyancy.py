@@ -11,14 +11,14 @@ class Buoyancy:
             self._timeInterval = 0.1
             self._timeEnd = 4.0
         else:
-            self._timeInterval = .0005
-            self._timeEnd = 10.0
+            self._timeInterval = .001
+            self._timeEnd = 20.0
         self._fluidDensity = 1.0
-        self._dampingFactor = 0.045 # For Fdrag, b value -> (density of medium)*(cross sectional area)
+        self._dampingFactor = 0.1 # For Fdrag, b value -> (density of medium)*(cross sectional area)
         self._objectDensity = 0.5
         self._rounding = True
         self._sigfig = 4
-        self._waterheight = -50.0
+        self._waterheight = -200
         self._mInertia = (rodMass*pow(rodLength,2.0))/12.0
         angle_rad = self.convertDegToRad(rotation)
         points = self.generate_points(numpoints, rodLength)
@@ -28,9 +28,10 @@ class Buoyancy:
             data = self.roundData(data)
 
         if self._debugging:
-            self.promptData(data)
+            self.evaluate(data)
         else:
             self.writeCSV(data)
+            self.evaluate(data)
 
     def convertRadToDeg(self, radians):
         degrees = radians * 57.2957795
@@ -106,6 +107,7 @@ class Buoyancy:
 
             newpoints = []
             for point in points:
+                # Drag force is initially calculated in the +y direction, assumign movement is in the -y direction
                 Fdrag = (self._dampingFactor * pow(velocity,2.0))
                 if velocity > 0.0:
                     Fdrag = -Fdrag
@@ -114,11 +116,11 @@ class Buoyancy:
                 y = velocity*self._timeInterval + pow(self._timeInterval,2.0) *(0.5*acceleration) + point[1]
                 
                 if y < self._waterheight:
-                    # Net Force = Buoyancy Force on object - Force of Gravity on object + Drag Force
+                    # Object's Net Force = Buoyancy Force + Drag Force - Force of Gravity
                     Fnet = Fb + Fdrag - Fg
                 else:
                     # Net Force = - Force of Gravity on object
-                    Fnet = -Fg
+                    Fnet = -Fg + Fdrag
                 newpoint = [point[0],y]
                 newpoints.append(newpoint)
                 #get center point of rod
@@ -136,7 +138,6 @@ class Buoyancy:
                     length = sqrt(pow(x_len,2.0) + pow(y_len,2.0))
                     segment.append(length)
                     segment_sum += length
-                print Fnet
                 i+=1
 
                 # end of for loop
@@ -327,17 +328,46 @@ class Buoyancy:
                 writer.writerow(row)
                 i+=1
 
-    def promptData(self, data):
+    def evaluate(self, data):
         times = data['time']
+        angular_velocitys = data['angular velocity']
         angular_accelerations = data['angular acceleration']
         linear_accelerations = data['linear acceleration']
+        linear_velocitys = data['linear velocity']
         locations = data['point locations']
         torques = data['torque']
         forces = data['force']
         angles = data['angle']
-        i = 0
-        while i < len(times):
-            #print ('time:',times[i],'points:',locations[i],'angular acceleration:',angular_accelerations[i],'linear acceleration:',linear_accelerations[i],'torque:',torques[i],'force:',forces[i],'angle:',angles[i])
-            i+=1
+        segments = data['segments']
+        segment_sums = data['rod length']
+        isStraight_list = data['is straight/length difference']
+
+        # Find the terminal velocity when the rod hits the water, compare it to the max velocity. 
+        # The idea is to use the damping factor to make the terminal velocity be the max velocity
+        t_water = self.getTimeHitsWater(locations)
+        max_velocity = self.getMaxVelocity(linear_velocitys)
+        terminal_velocity = linear_velocitys[int(t_water/self._timeInterval) - 1]
+
+        prompt = 'Terminal Velocity: ' + repr(terminal_velocity) + ', Max Velocity: ' + repr(max_velocity)
+        if fabs(terminal_velocity) < fabs(max_velocity):
+            prompt = prompt + ' Consider inreasing damping.' 
+        print prompt
+    
+    def getTimeHitsWater(self, locations):
+        t = 0
+        while t < len(locations):
+            points = locations[t]
+            for point in points:
+                if point[1] < self._waterheight:
+                    return t*self._timeInterval
+            t+=1
+
+    def getMaxVelocity(self,linear_velocitys):
+        max_velocity = 0.0
+        for velocity in linear_velocitys:
+            if fabs(velocity) > fabs(max_velocity):
+                max_velocity = velocity
+        return max_velocity
+
 
 static_test = Buoyancy(5, -50.0, 0.0, 10.0, 10.0, -36.87)

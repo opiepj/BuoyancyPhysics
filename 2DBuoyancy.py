@@ -9,16 +9,24 @@ class Buoyancy:
         self._debugging = False
         if self._debugging:
             self._timeInterval = 0.1
-            self._timeEnd = 4.0
+            self._timeEnd = 10.0
         else:
             self._timeInterval = .001
-            self._timeEnd = 20.0
+            self._timeEnd = 30.0
+
         self._fluidDensity = 1.0
-        self._dampingFactor = 0.1 # For Fdrag, b value -> (density of medium)*(cross sectional area)
         self._objectDensity = 0.5
+
+        # For Drag force, b value -> (density of medium)*(cross sectional area)
+        self._waterLinearDampingFactor = 1.0
+        self._waterAngularDampingFactor = 10.0
+        self._airLinearDampingFactor = 0.1
+        self._airAngularDampingFactor = 1.0
+
         self._rounding = True
         self._sigfig = 4
-        self._waterheight = -200
+        self._waterheight = -500.0
+        self._floor = -200.0
         self._mInertia = (rodMass*pow(rodLength,2.0))/12.0
         angle_rad = self.convertDegToRad(rotation)
         points = self.generate_points(numpoints, rodLength)
@@ -53,11 +61,9 @@ class Buoyancy:
             print 'WARNING: Even number of points was given, an additional point has been added.'
 
         i = 0.0 
-        #instantiate a float numpoints
-        fnumpoints = numpoints * 1.0
         #generate points along the x-axis
         while i < numpoints:
-            x = -rodLength/2.0 + ((rodLength*i)/(fnumpoints-1.0))
+            x = -rodLength/2.0 + ((rodLength*i)/(float(numpoints)-1.0))
             #create a point that lies on the x-axis
             point = [x,0]
             points.append(point)
@@ -72,8 +78,12 @@ class Buoyancy:
         velocity = initialVelocity
         numPoints = len(points)
         density_ratio = self._fluidDensity/self._objectDensity
-        # Initial acceleration is downward gravity
-        acceleration = -9.8
+        # Initial acceleration is downward gravity, if above water
+        if points[numPoints/2][1] > self._waterheight:
+            acceleration = -9.8
+        else:
+            acceleration = density_ratio*9.8
+        print acceleration
         data = {}
         times = []
         newpoints_sum = []
@@ -84,6 +94,8 @@ class Buoyancy:
         linear_accelerations = []
         linear_velocitys = []
         angles = []
+        origin_pointsX = []
+        origin_pointsY = []
         # debugging purposes
         segments = []
         segment_sums = []
@@ -108,26 +120,45 @@ class Buoyancy:
             newpoints = []
             for point in points:
                 # Drag force is initially calculated in the +y direction, assumign movement is in the -y direction
-                Fdrag = (self._dampingFactor * pow(velocity,2.0))
-                if velocity > 0.0:
-                    Fdrag = -Fdrag
                 Fg = ((rodMass/numPoints)*9.8)
                 Fb = ((rodMass/numPoints)*density_ratio*9.8)
+                Flinear_drag = pow(velocity,2.0)/float(numPoints)
+                if velocity > 0.0:
+                    Flinear_drag = -Flinear_drag
                 y = velocity*self._timeInterval + pow(self._timeInterval,2.0) *(0.5*acceleration) + point[1]
                 
                 if y < self._waterheight:
                     # Object's Net Force = Buoyancy Force + Drag Force - Force of Gravity
-                    Fnet = Fb + Fdrag - Fg
+                    Flinear_drag = Flinear_drag * self._waterLinearDampingFactor
+                    Fnet = Fb + Flinear_drag - Fg
+                    angDrag_coe = self._waterAngularDampingFactor
                 else:
                     # Net Force = - Force of Gravity on object
-                    Fnet = -Fg + Fdrag
+                    Flinear_drag = Flinear_drag * self._airLinearDampingFactor
+                    Fnet = -Fg + Flinear_drag
+                    angDrag_coe = self._airAngularDampingFactor
                 newpoint = [point[0],y]
                 newpoints.append(newpoint)
                 #get center point of rod
                 rod_origin = points[numPoints/2]
-                r = point[0] - rod_origin[0]
-                torque = r*Fnet
-                torque_sum += torque
+
+                # Calculate displacement vector, r
+                r_x = point[0] - rod_origin[0]
+                r_y = point[1] - rod_origin[1]
+                r = sqrt(pow(r_x,2.0) + pow(r_y,2.0))
+
+                # Calculate Tangential Velocity and angular drag force, w*r = V, Fd = b2*V^2 
+                V_tan = angular_velocity * r
+                Fangular_drag = angDrag_coe*pow(V_tan,2.0)
+
+                # Torque = r x F
+                torque = r_x*Fnet
+                torque_drag = r * Fangular_drag
+                if angular_velocity > 0.0:
+                    torque_drag = -torque_drag
+                # Drag Torque points opposite of angular velocity
+                torque_net = torque + torque_drag
+                torque_sum += torque_net
                 force_sum += Fnet
 
                 #For Debugging, get length of segment
@@ -168,8 +199,25 @@ class Buoyancy:
             linear_accelerations.append(acceleration)
             linear_velocitys.append(velocity)
             angles.append(angle)
+            origin_pointsX.append(points[numPoints/2][0])
+            origin_pointsY.append(points[numPoints/2][1])
 
-            data = {'time':times,'point locations':newpoints_sum,'segments':segments,'is straight/length difference':isStraight_list,'rod length':segment_sums,'torque': torques,'force':forces,'angular velocity':angular_velocitys,'angular acceleration':angular_accelerations,'linear acceleration':linear_accelerations,'linear velocity':linear_velocitys, 'angle':angles}
+            data = {
+            'time':times,
+            'point locations':newpoints_sum,
+            'segments':segments,
+            'is straight/length difference':isStraight_list,
+            'rod length':segment_sums,
+            'torque': torques,
+            'force':forces,
+            'angular velocity':angular_velocitys,
+            'angular acceleration':angular_accelerations,
+            'linear acceleration':linear_accelerations,
+            'linear velocity':linear_velocitys, 
+            'angle':angles,
+            'originX':origin_pointsX,
+            'originY':origin_pointsY,
+            }
 
             t += self._timeInterval
 
@@ -219,6 +267,8 @@ class Buoyancy:
         segments = data['segments']
         segment_sums = data['rod length']
         isStraight_list = data['is straight/length difference']
+        origin_pointsX = data['originX']
+        origin_pointsY = data['originY']
         i = 0
         while i < len(times):
 
@@ -256,7 +306,20 @@ class Buoyancy:
 
             i+=1
 
-        new_data = {'time':times,'point locations':locations,'segments':segments,'is straight/length difference':isStraight_list,'rod length':segment_sums,'torque': torques,'force':forces,'angular velocity':angular_velocitys,'angular acceleration':angular_accelerations,'linear acceleration':linear_accelerations,'linear velocity':linear_velocitys, 'angle':angles}
+        new_data = {'time':times,
+        'point locations':locations,
+        'segments':segments,
+        'is straight/length difference':isStraight_list,
+        'rod length':segment_sums,
+        'torque': torques,
+        'force':forces,
+        'angular velocity':angular_velocitys,
+        'angular acceleration':angular_accelerations,
+        'linear acceleration':linear_accelerations,
+        'linear velocity':linear_velocitys, 
+        'angle':angles,
+        'originX':origin_pointsX,
+        'originY':origin_pointsY}
         return new_data
 
 
@@ -309,6 +372,8 @@ class Buoyancy:
             segments = data['segments']
             segment_sums = data['rod length']
             isStraight_list = data['is straight/length difference']
+            origin_pointsX = data['originX']
+            origin_pointsY = data['originY']
 
             i = 0
             while i < len(times):
@@ -324,6 +389,8 @@ class Buoyancy:
                         'linear acceleration':linear_accelerations[i],
                         'time':times[i],
                         'angle':angles[i],
+                        'originX':origin_pointsX[i],
+                        'originY':origin_pointsY[i]
                         }
                 writer.writerow(row)
                 i+=1

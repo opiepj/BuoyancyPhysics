@@ -4,7 +4,7 @@ from math import log10, sin, cos, floor, asin, pi, sqrt, fabs, exp
 # 2D Buoyancy script
 # A rod with length L has a odd number set of test points, the middle point representing the origin. 
 # we will assume the rod is made of pine and the liquid is water therefore having a density ratio of 2
-class Buoyancy:
+class TwoDBuoyancy:
     def __init__(self, numpoints, waterHeight, initialVelocity, rodMass, rodLength, rotation):
         self._debugging = False
         if self._debugging:
@@ -437,4 +437,4 @@ class Buoyancy:
         return max_velocity
 
 
-static_test = Buoyancy(5, -50.0, 0.0, 10.0, 10.0, -36.87)
+static_test = TwoDBuoyancy(5, -50.0, 0.0, 10.0, 10.0, -36.87)

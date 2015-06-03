@@ -181,21 +181,68 @@ class ocean:
 
         return cvn
 
-    def evaluate(self, t):
+    def evaluate_waves(self, t):
         l = -1.0
         m_prime = 0
         while m_prime < self._N:
             while n_prime < self._N:
                 index = m_prime * self._Nplus1 + n_prime
-                data = vertices[index]
+                data = self._vertices[index]
                 a = data['vertex'].x
                 b = 0.0
                 c = data['vertex'].z
                 x = Vector(a,b,c)
 
                 h_d_n = self.h_D_n(x,t)
+                h = h_d_n['waveheight']
+                n = h_d_n['normal']
+                D = h_d_n['displacement']
 
-                data['vertex'].y = h_d_n
+                data['vertex'].y = h.real
+                data['vertex'].x = data['original_position'].x + l*D.x
+                data['vertex'].z = data['original_position'].z + l*D.y
+
+                data['normal'].x = n.x
+                data['normal'].y = n.y
+                data['normal'].z = n.z
+
+                self._vertices[index] = data
+
+                if n_prime == 0 and m_prime == 0:
+                    data_prime = self._vertices[index + self._N + self._Nplus1 * self._N]
+                    data_prime['vertex'].y = h.real
+                    data_prime['vertex'].x = data_prime['original_position'].x + l*D.x
+                    data_prime['vertex'].z = data_prime['original_position'].z + l*D.y
+
+                    data_prime['normal'].x = n.x
+                    data_prime['normal'].y = n.y
+                    data_prime['normal'].z = n.z
+
+                    self._vertices[index + self._N + self._Nplus1 * self._N] = data_prime
+
+                if n_prime == 0:
+                    data_prime = self._vertices[index + self._N]
+                    data_prime['vertex'].y = h.real
+                    data_prime['vertex'].x = data_prime['original_position'].x + l*D.x
+                    data_prime['vertex'].z = data_prime['original_position'].z + l*D.y
+
+                    data_prime['normal'].x = n.x
+                    data_prime['normal'].y = n.y
+                    data_prime['normal'].z = n.z
+
+                    self._vertices[index + self._N] = data_prime
+
+                if m_prime == 0:
+                    data_prime = self._vertices[index + self._N * self._Nplus1]
+                    data_prime['vertex'].y = h.real
+                    data_prime['vertex'].x = data_prime['original_position'].x + l*D.x
+                    data_prime['vertex'].z = data_prime['original_position'].z + l*D.y
+
+                    data_prime['normal'].x = n.x
+                    data_prime['normal'].y = n.y
+                    data_prime['normal'].z = n.z
+
+                    self._vertices[index + self._N * self.Nplus1] = data_prime
 
                 n_prime+=1
 
@@ -234,7 +281,5 @@ class complex_vector_normal:
                 'normal':n
                 }
         self = data
-        
-
 
 static_test = ocean(False, -9.8, 1, 2, Vector(1.0,0.0,1.0), cFFT(fft)) 

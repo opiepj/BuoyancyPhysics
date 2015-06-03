@@ -24,6 +24,8 @@ class ocean:
         self._A = A
         self._length = length
         self._fft = fft
+        self._N = N
+        self._Nplus1 = Nplus1
         m_prime = 0
         while m_prime < Nplus1:
             n_prime = 0
@@ -98,15 +100,15 @@ class ocean:
             m_prime+=1
         self._vertices = vertices
 
-    
+
     def dispersion(self, n_prime, m_prime):
         w_0 = 2.0 * pi / 120.0
-        kx = pi * (2 * n_prime - N) / self._length
-        ky = pi * (2 * m_prime - N) / self._length
+        kx = pi * (2 * n_prime - self._N) / self._length
+        ky = pi * (2 * m_prime - self._N) / self._length
         return (sqrt(self._g * sqrt(pow(kx,2.0) + pow(kz,2.0))) / w_0) * w_0
 
     def phillips(self, n_prime, m_prime):
-        k = Vector(pi * (2*n_prime - N) / self._length, 0.0, pi * (2 * m_prime) / self._length)
+        k = Vector(pi * (2*n_prime - self._N) / self._length, 0.0, pi * (2 * m_prime) / self._length)
         k_length = k.magnitude()
         if k_length < 0.000001:
             return 0.0
@@ -145,6 +147,60 @@ class ocean:
 
         return htilde0 * c0 + htilde0_conj*c1
 
+    def h_D_n(self, x, t):
+        h = complex(0.0,0.0)
+        D = Vector(0.0,0.0,0.0)
+        n = Vector(0.0,0.0,0.0)
+
+        m_prime = 0
+        while m_prime < self._N:
+            n_prime = 0
+            kz = 2.0 * pi * (m_prime - self._N/2.0)/self._length
+            while n_prime < self._N:
+                kx = 2.0 * pi * (n_prime - self._N/2.0)/self.length
+                k = Vector(kx,0.0,kz)
+
+                k_length = k.magnitude()
+                k_dot_x = k.dot(x)
+
+                c = complex(cos(k_dot_x), sin(k_dot_x))
+                htilde_c = self.hTilde(t, n_prime, m_prime)
+
+                h = h + htilde_c
+                n = n + Vector(-kx * htilde_c.imag, 0.0, -kz*htilde_c.imag)
+                
+                if k_length  < 0.000001: continue
+                D = D + Vector(kx/k_length * htilde_c.imag, 0.0, kz * htilde_c.imag)
+
+                n_prime+=1
+            m_prime+=1
+
+        n = Vector(0.0, 1.0, 0.0) - n
+
+        cvn = complex_vector_normal(h, D, n)
+
+        return cvn
+
+    def evaluate(self, t):
+        l = -1.0
+        m_prime = 0
+        while m_prime < self._N:
+            while n_prime < self._N:
+                index = m_prime * self._Nplus1 + n_prime
+                data = vertices[index]
+                a = data['vertex'].x
+                b = 0.0
+                c = data['vertex'].z
+                x = Vector(a,b,c)
+
+                h_d_n = self.h_D_n(x,t)
+
+                data['vertex'].y = h_d_n
+
+                n_prime+=1
+
+            m_prime+=1
+            
 class vertex_ocean:
 
     def __init__(self, N):
@@ -172,6 +228,13 @@ class complex_vector_normal:
         h = height # complex
         D = displacement # 2D Vector
         n = normal # 3D Vector
+        data = {
+                'waveheight':h,
+                'displacement':d,
+                'normal':n
+                }
+        self = data
+        
 
 
 static_test = ocean(False, -9.8, 1, 2, Vector(1.0,0.0,1.0), cFFT(fft)) 

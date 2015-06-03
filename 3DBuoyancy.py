@@ -237,5 +237,4 @@ class Buoyancy:
         vec.z = vec.z
         return vec
 
-
-
+static_test = Buoyancy(5, 100.0, Vector(0.0,0.0,0.0), 10.0, 10.0, Vector(-36.7,0.0,0.0))

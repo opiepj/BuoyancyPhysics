@@ -74,13 +74,3 @@ class cFFT:
         for i in xrange(self._N):
             outp[i * stride + offset] = c[which][i]
 
-
-
-
-
-
-
-
-
-        
-

@@ -1,3 +1,3 @@
 # BuoyancyPhysics
-Simulate Buoyancy Physics
-Capstone Project, Patrick Opie
+Buoyancy Simulation
+Capstone Physics Project, Patrick Opie
